@@ -11,6 +11,8 @@ import { GfxClipSpaceNearZ } from './gfx/platform/GfxPlatform.js';
 import { CameraAnimationManager, InterpolationStep, StudioPanel } from './Studio.js';
 import { GlobalSaveManager } from './SaveManager.js';
 
+import { drawWorldSpaceBasis, getDebugOverlayCanvas2D } from '../src/DebugJunk.js';
+
 // TODO(jstpierre): All of the cameras and camera controllers need a pretty big overhaul.
 
 export class Camera {
@@ -260,6 +262,20 @@ export class FPSCameraController implements CameraController {
     public update(inputManager: InputManager, dt: number): CameraUpdateResult {
         const camera = this.camera;
 
+        let previousCameraPosition = [camera.worldMatrix[12], camera.worldMatrix[13], camera.worldMatrix[14]];
+        camera.worldMatrix[12] = camera.worldMatrix[13] = camera.worldMatrix[14] = 0;
+        drawWorldSpaceBasis(getDebugOverlayCanvas2D(), camera.clipFromWorldMatrix, camera.worldMatrix, 1024, 2);
+        camera.worldMatrix[12] = previousCameraPosition[0];
+        camera.worldMatrix[13] = previousCameraPosition[1];
+        camera.worldMatrix[14] = previousCameraPosition[2];
+
+        previousCameraPosition = [camera.viewMatrix[12], camera.viewMatrix[13], camera.viewMatrix[14]];
+        camera.viewMatrix[12] = camera.viewMatrix[13] = camera.viewMatrix[14] = 1024;
+        drawWorldSpaceBasis(getDebugOverlayCanvas2D(), camera.clipFromWorldMatrix, camera.viewMatrix, 1024, 2);
+        camera.viewMatrix[12] = previousCameraPosition[0];
+        camera.viewMatrix[13] = previousCameraPosition[1];
+        camera.viewMatrix[14] = previousCameraPosition[2];
+        
         // Camera reset
         {
             if (inputManager.isKeyDownEventTriggered('KeyB')) {
@@ -346,22 +362,26 @@ export class FPSCameraController implements CameraController {
         keyMovement[1] += inputManager.getTouchDeltaY() * keyMoveVelocity;
 
         const viewUp = scratchVec3b;
+        const viewForward = scratchVec3d;
         // Instead of getting the camera up, instead use view up. Feels more natural.
         if (this.useViewUp) {
             getMatrixAxisY(viewUp, camera.viewMatrix);
+            getMatrixAxisZ(viewForward, camera.worldMatrix);
+            viewForward[0] = 0, viewForward[1] = -viewForward[1], viewForward[2] = (1 - (Math.abs(viewForward[1]))) * 2.8;
+            vec3.normalize(viewForward, viewForward);
+
         } else {
             vec3.copy(viewUp, Vec3UnitY);
+            vec3.copy(viewForward, Vec3UnitZ);
         }
 
         const viewRight = scratchVec3c;
-        const viewForward = scratchVec3d;
 
         if (this.worldForward !== null) {
             transformVec3Mat4w0(viewForward, camera.viewMatrix, this.worldForward);
             vec3.cross(viewRight, viewUp, viewForward);
         } else {
             vec3.copy(viewRight, Vec3UnitX);
-            vec3.copy(viewForward, Vec3UnitZ);
         }
 
         if (!vec3.exactEquals(keyMovement, Vec3Zero)) {
