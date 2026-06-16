@@ -253,6 +253,7 @@ export class Viewer {
         const worldMatrix = this.camera.worldMatrix;
         const camPositionX = worldMatrix[12].toFixed(2), camPositionY = worldMatrix[13].toFixed(2), camPositionZ = worldMatrix[14].toFixed(2);
         statistics.lines.push(`Camera Position: ${camPositionX} ${camPositionY} ${camPositionZ}`);
+        statistics.lines.push(`Camera Velocity: ${this.camera.linearVelocity[0].toFixed(2)}, ${this.camera.linearVelocity[1].toFixed(2)}, ${this.camera.linearVelocity[2].toFixed(2)}`);
 
         const vendorInfo = this.gfxDevice.queryVendorInfo();
         const platformString = GfxPlatform[vendorInfo.platform];

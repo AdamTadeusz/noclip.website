@@ -35,6 +35,8 @@ export class Camera {
     // Camera's linear (aka positional) velocity. Instantaneous for the frame.
     public linearVelocity = vec3.create();
 
+    public droneMovement = false;
+
     public frustum = new Frustum();
     
     public static DefaultFovY = MathConstants.TAU / 6;
@@ -259,14 +261,23 @@ export class FPSCameraController implements CameraController {
 
     public update(inputManager: InputManager, dt: number): CameraUpdateResult {
         const camera = this.camera;
+
+        // Handle camera reset
+        {
+            if (inputManager.isKeyDownEventTriggered('KeyB')) {
+                mat4.identity(camera.worldMatrix);
+                vec3.zero(camera.linearVelocity);
+                vec3.zero(this.keyMovement);
+                camera.worldMatrixUpdated();
+                return CameraUpdateResult.Changed;
+            }
+            if (inputManager.isKeyDown('KeyB')) {
+                return CameraUpdateResult.Unchanged;
+            }
+        }
+
         let updated = false;
         let important = false;
-
-        if (inputManager.isKeyDown('KeyB')) {
-            mat4.identity(camera.worldMatrix);
-            this.cameraUpdateForced();
-            updated = true;
-        }
 
         this.keyMoveSpeed = Math.max(this.keyMoveSpeed, 1);
         const isShiftPressed = inputManager.isKeyDown('ShiftLeft') || inputManager.isKeyDown('ShiftRight');
@@ -355,18 +366,56 @@ export class FPSCameraController implements CameraController {
             vec3.copy(viewForward, Vec3UnitZ);
         }
 
+        if (inputManager.isKeyDownEventTriggered("KeyX")) {
+            this.camera.droneMovement = !this.camera.droneMovement;
+        }
+
         if (!vec3.exactEquals(keyMovement, Vec3Zero)) {
             const finalMovement = scratchVec3a;
             vec3.zero(finalMovement);
 
-            vec3.scaleAndAdd(finalMovement, finalMovement, viewRight, keyMovement[0]);
             vec3.scaleAndAdd(finalMovement, finalMovement, viewForward, keyMovement[2]);
-            vec3.scaleAndAdd(finalMovement, finalMovement, viewUp, keyMovement[1]);
 
-            vec3.scale(finalMovement, finalMovement, this.sceneMoveSpeedMult * (dt / FPS));
-
-            vec3.copy(camera.linearVelocity, finalMovement);
+            const previousCameraPosition = [camera.worldMatrix[12], camera.worldMatrix[13], camera.worldMatrix[14]];
             mat4.translate(camera.worldMatrix, camera.worldMatrix, finalMovement);
+
+            if (this.camera.droneMovement && !vec3.exactEquals(finalMovement, Vec3Zero)) {
+                const xDifference = camera.worldMatrix[12] - previousCameraPosition[0];
+                const yDifference = camera.worldMatrix[13] - previousCameraPosition[1];
+                const zDifference = camera.worldMatrix[14] - previousCameraPosition[2];
+
+                // Hover movement, revert change to altitude caused by movement keys
+                camera.worldMatrix[13] = previousCameraPosition[1];
+
+                // Calculate lost velocity, to reapply to remaining movement direction
+                const absXDifference = Math.abs(xDifference);
+                const absYDifference = Math.abs(yDifference);
+                const absZDifference = Math.abs(zDifference);
+
+                camera.worldMatrix[12] += xDifference > 0 ? (absXDifference * absYDifference) / (absXDifference + absZDifference) : - (absXDifference * absYDifference) / (absXDifference + absZDifference);
+                camera.worldMatrix[14] += zDifference > 0 ? (absZDifference * absYDifference) / (absXDifference + absZDifference) : - (absZDifference * absYDifference) / (absXDifference + absZDifference);
+
+                vec3.set(finalMovement, 0, 0, 0);
+            }
+            else {
+                vec3.set(finalMovement, 0, 0, 0);
+            }
+
+            vec3.scaleAndAdd(finalMovement, finalMovement, viewUp, keyMovement[1]);
+            vec3.scaleAndAdd(finalMovement, finalMovement, viewRight, keyMovement[0]);
+
+            mat4.translate(camera.worldMatrix, camera.worldMatrix, finalMovement);
+
+            // set finalMovement to the difference in world space position of the camera before and after the movement, i.e the final movement in world space coordinates
+            vec3.set(finalMovement, camera.worldMatrix[12] - previousCameraPosition[0], camera.worldMatrix[13] - previousCameraPosition[1], camera.worldMatrix[14] - previousCameraPosition[2]);
+            vec3.scale(finalMovement, finalMovement, this.sceneMoveSpeedMult * (dt / FPS));
+            vec3.copy(camera.linearVelocity, finalMovement); // TODO camera.linearVelocity was in camera space, but here its now in world space, fix
+
+            // Now that we've applied the velocity scaling, re-compute camera origin
+            camera.worldMatrix[12] = previousCameraPosition[0] + finalMovement[0];
+            camera.worldMatrix[13] = previousCameraPosition[1] + finalMovement[1];
+            camera.worldMatrix[14] = previousCameraPosition[2] + finalMovement[2];
+
             updated = true;
         } else {
             vec3.copy(camera.linearVelocity, Vec3Zero);
